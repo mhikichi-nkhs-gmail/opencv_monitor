@@ -4,11 +4,20 @@ import cv2
 import numpy as np
 import time
 import sys
+import signal
 from PIL import ImageFont, ImageDraw, Image
 
 
 PORT = 12345
 HOST = ''  # すべてのインターフェースで受信
+
+# グローバル終了フラグ
+quit_flag = False
+
+def signal_handler(sig, frame):
+    global quit_flag
+    print("\nCtrl+C detected. Exiting...")
+    quit_flag = True
 
 def receive_exact(sock, size):
     data = b''
@@ -21,9 +30,13 @@ def receive_exact(sock, size):
 
 
 def main():
+    global quit_flag
+    
+    # Ctrl+Cシグナルハンドラーを設定
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # 拡大表示モード（1=元サイズ, 2=2倍拡大, 4=4倍拡大）
     scale_factor = 1
-    quit_flag = False
 
     while not quit_flag:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
