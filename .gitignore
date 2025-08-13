@@ -1,2 +1,12 @@
 *.jpg
 *.png
+
+# 証拠保全用画像ファイル
+recv_img/evidence_images/
+recv_img/received_images/
+
+# ログファイル
+*.log
+
+# 自動生成されたファイル
+recv_img/test_image.jpg
