@@ -1,15 +1,18 @@
 @echo off
-echo ï¿½æ‘œï¿½ï¿½ï¿½pï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½...
+chcp 932 >nul
+echo ‰æ‘œ’†ŒpƒT[ƒo[‚ğ‹N“®‚µ‚Ü‚·...
 echo.
 
-REM ï¿½Ë‘ï¿½ï¿½ÖŒWï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½
-rem echo ï¿½Ë‘ï¿½ï¿½ÖŒWï¿½ï¿½ï¿½`ï¿½Fï¿½bï¿½Nï¿½ï¿½...
-rem pip install -r requirements.txt
-
 echo.
-echo ï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½...
+echo ‰æ‘œ’†ŒpƒT[ƒo[‚ğŠJn’†...
+echo ƒ\ƒPƒbƒg: 0.0.0.0:8080
+echo API: http://localhost:5000/snap
+echo.
+
 python image_relay_server.py
 
 pause
+
+
 
 

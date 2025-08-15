@@ -17,6 +17,9 @@ import configparser
 import os
 from datetime import datetime
 import traceback
+import cv2
+import numpy as np
+from io import BytesIO
 
 class ImageRelayServer:
     """画像中継サーバークラス"""
@@ -46,6 +49,11 @@ class ImageRelayServer:
         self.save_dir = self.config.get('evidence', 'save_dir', fallback='evidence_images')
         self.save_metadata = self.config.getboolean('evidence', 'save_metadata', fallback=True)
         self.ensure_save_dir()
+        
+        # 画像変換設定
+        self.target_width = self.config.getint('image', 'target_width', fallback=800)
+        self.target_height = self.config.getint('image', 'target_height', fallback=600)
+        self.jpeg_quality = self.config.getint('image', 'jpeg_quality', fallback=95)
         
         # サーバー状態
         self.running = False
@@ -82,6 +90,11 @@ class ImageRelayServer:
             'save_dir': 'evidence_images',
             'save_metadata': 'True'
         }
+        config['image'] = {
+            'target_width': '800',
+            'target_height': '600',
+            'jpeg_quality': '95'
+        }
         
         # 設定ファイルが存在する場合は読み込み
         if os.path.exists(config_file):
@@ -116,15 +129,16 @@ class ImageRelayServer:
             os.makedirs(self.save_dir)
             print(f"証拠保全用ディレクトリを作成: {self.save_dir}")
     
-    def save_evidence_image(self, image_data: bytes, header: Dict[str, Any], client_address: tuple, timestamp: str) -> Optional[str]:
+    def save_evidence_image(self, image_data: bytes, header: Dict[str, Any], client_address: tuple, timestamp: str, is_submission: bool = False) -> Optional[str]:
         """証拠保全用に画像を保存"""
         if not self.save_images:
             return None
         
         try:
-            # ファイル名を生成（タイムスタンプ + クライアントアドレス）
+            # ファイル名を生成（タイムスタンプ + クライアントアドレス + 提出フラグ）
             timestamp_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            filename = f"evidence_{timestamp_obj.strftime('%Y%m%d_%H%M%S_%f')}_{client_address[0]}_{client_address[1]}.jpg"
+            prefix = "submission" if is_submission else "evidence"
+            filename = f"{prefix}_{timestamp_obj.strftime('%Y%m%d_%H%M%S_%f')}_{client_address[0]}_{client_address[1]}.jpg"
             filepath = os.path.join(self.save_dir, filename)
             
             # 画像を保存
@@ -141,14 +155,17 @@ class ImageRelayServer:
                     'timestamp': timestamp,
                     'client_address': str(client_address),
                     'header': header,
-                    'received_count': self.received_count
+                    'received_count': self.received_count,
+                    'is_submission': is_submission,
+                    'image_type': 'submission' if is_submission else 'original'
                 }
                 
                 with open(metadata_file, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, ensure_ascii=False, indent=2)
             
             self.received_count += 1
-            self.logger.info(f"証拠保全: 画像を保存しました - {filename} ({len(image_data)} bytes)")
+            image_type = "提出画像" if is_submission else "元画像"
+            self.logger.info(f"証拠保全: {image_type}を保存しました - {filename} ({len(image_data)} bytes)")
             return filepath
             
         except Exception as e:
@@ -220,27 +237,33 @@ class ImageRelayServer:
             if not image_data:
                 return
             
-            # 証拠保全用に画像を保存
+            # 画像変換処理
+            converted_image_data = self.convert_image(image_data)
+            if not converted_image_data:
+                self.logger.error(f"画像変換に失敗しました: {address}")
+                return
+            
+            # 証拠保全用に提出画像を保存
             timestamp = datetime.now().isoformat()
-            saved_path = self.save_evidence_image(image_data, header_data, address, timestamp)
+            saved_path = self.save_evidence_image(converted_image_data, header_data, address, timestamp, is_submission=True)
             
             # キューに追加
             try:
                 self.image_queue.put_nowait({
-                    'image_data': image_data,
+                    'image_data': converted_image_data,
                     'header': header_data,
                     'timestamp': timestamp,
                     'client_address': address,
                     'saved_path': saved_path
                 })
-                self.logger.info(f"画像をキューに追加: {address} - サイズ: {len(image_data)} bytes")
+                self.logger.info(f"画像をキューに追加: {address} - サイズ: {len(converted_image_data)} bytes")
             except queue.Full:
                 self.logger.warning("キューが満杯です。古い画像を破棄します")
                 # 古い画像を削除して新しい画像を追加
                 try:
                     self.image_queue.get_nowait()
                     self.image_queue.put_nowait({
-                        'image_data': image_data,
+                        'image_data': converted_image_data,
                         'header': header_data,
                         'timestamp': timestamp,
                         'client_address': address,
@@ -303,6 +326,43 @@ class ImageRelayServer:
             self.logger.error(f"画像受信エラー: {e}")
             return None
     
+    def convert_image(self, image_data: bytes) -> Optional[bytes]:
+        """画像を800x600のJPEG形式に変換"""
+        try:
+            # バイトデータをnumpy配列に変換
+            nparr = np.frombuffer(image_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if img is None:
+                self.logger.error("画像のデコードに失敗しました")
+                return None
+            
+            original_height, original_width = img.shape[:2]
+            self.logger.info(f"元画像サイズ: {original_width}x{original_height}")
+            
+            # サイズが異なる場合はリサイズ
+            if original_width != self.target_width or original_height != self.target_height:
+                img = cv2.resize(img, (self.target_width, self.target_height), interpolation=cv2.INTER_LANCZOS4)
+                self.logger.info(f"画像をリサイズしました: {self.target_width}x{self.target_height}")
+            
+            # JPEG形式でエンコード
+            encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
+            success, encoded_image = cv2.imencode('.jpg', img, encode_params)
+            
+            if not success:
+                self.logger.error("JPEGエンコードに失敗しました")
+                return None
+            
+            # バイトデータに変換
+            converted_data = encoded_image.tobytes()
+            self.logger.info(f"画像変換完了: {len(converted_data)} bytes (品質: {self.jpeg_quality})")
+            
+            return converted_data
+            
+        except Exception as e:
+            self.logger.error(f"画像変換エラー: {e}")
+            return None
+    
     def _worker_thread(self, worker_id: int):
         """ワーカースレッド - キューから画像を取得してAPIに送信"""
         self.logger.info(f"ワーカースレッド {worker_id} が開始されました")
@@ -320,7 +380,7 @@ class ImageRelayServer:
                 self.logger.error(f"ワーカースレッド {worker_id} エラー: {e}")
     
     def _send_image_to_api(self, item: Dict[str, Any], worker_id: int):
-        """画像をAPIに送信"""
+        """画像をAPIに送信（ET ROBOT CONTEST API仕様）"""
         image_data = item['image_data']
         header = item['header']
         timestamp = item['timestamp']
@@ -329,29 +389,37 @@ class ImageRelayServer:
         
         for attempt in range(self.max_retries + 1):
             try:
-                # マルチパートフォームデータで送信
-                files = {
-                    'image': ('image.jpg', image_data, 'image/jpeg')
+                # ET ROBOT CONTEST API仕様に合わせて送信
+                # Content-Type: image/jpeg
+                # パラメータ: id (チームID)
+                
+                # チームIDを取得（メタデータから、またはデフォルト値）
+                team_id = header.get('metadata', {}).get('team_id', 1)
+                
+                # ヘッダーを設定
+                headers = {
+                    'Content-Type': 'image/jpeg'
                 }
                 
-                data = {
-                    'timestamp': timestamp,
-                    'client_address': str(client_address),
-                    'image_size': len(image_data),
-                    'metadata': json.dumps(header),
-                    'evidence_path': saved_path if saved_path else ''
+                # パラメータを設定
+                params = {
+                    'id': team_id
                 }
                 
                 response = requests.post(
                     self.api_url,
-                    files=files,
-                    data=data,
+                    data=image_data,
+                    headers=headers,
+                    params=params,
                     timeout=self.api_timeout
                 )
                 
-                if response.status_code == 200:
-                    self.logger.info(f"ワーカー {worker_id}: 画像送信成功 - {client_address}")
+                if response.status_code == 201:
+                    self.logger.info(f"ワーカー {worker_id}: 画像送信成功 - チーム{team_id}, {client_address}")
                     return
+                elif response.status_code == 429:
+                    self.logger.warning(f"ワーカー {worker_id}: 画像送信制限 - チーム{team_id}は今日の制限に達しました")
+                    return  # 429エラーは再試行しない
                 else:
                     self.logger.warning(f"ワーカー {worker_id}: API応答エラー - {response.status_code}")
                     

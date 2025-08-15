@@ -5,11 +5,18 @@ requests>=2.25.1
 
 # Web API サーバー用（テスト用）
 Flask>=2.0.0
+Flask-CORS>=3.0.10
 
 # 画像処理用（テスト用）
 Pillow>=8.0.0
 
 # 型ヒント用
 typing-extensions>=3.7.4
+
+# フォルダ監視用
+watchdog>=2.1.0
+
+# Raspberry Piカメラ用
+picamera>=1.13
 
 
