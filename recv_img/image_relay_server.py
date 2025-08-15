@@ -43,6 +43,7 @@ class ImageRelayServer:
         self.api_timeout = self.config.getint('api', 'timeout', fallback=30)
         self.max_retries = self.config.getint('api', 'max_retries', fallback=3)
         self.retry_delay = self.config.getfloat('api', 'retry_delay', fallback=1.0)
+        self.team_id = self.config.getint('api', 'team_id', fallback=1)
         
         # 証拠保全設定
         self.save_images = self.config.getboolean('evidence', 'save_images', fallback=True)
@@ -64,6 +65,10 @@ class ImageRelayServer:
         self.received_count = 0
         
         self.logger.info("画像中継サーバーを初期化しました")
+        self._print_initialization_info()
+        
+        # REST API疎通確認
+        self._check_api_connectivity()
     
     def _load_config(self, config_file: str) -> configparser.ConfigParser:
         """設定ファイルを読み込み"""
@@ -76,10 +81,11 @@ class ImageRelayServer:
             'buffer_size': '65536'
         }
         config['api'] = {
-            'url': 'http://localhost:3000/api/images',
+            'url': 'http://192.168.100.1/snap',
             'timeout': '30',
             'max_retries': '3',
-            'retry_delay': '1.0'
+            'retry_delay': '1.0',
+            'team_id': '1'
         }
         config['server'] = {
             'max_workers': '3',
@@ -107,6 +113,103 @@ class ImageRelayServer:
             print(f"デフォルト設定を {config_file} に保存しました")
         
         return config
+    
+    def _print_initialization_info(self):
+        """初期化情報を表示"""
+        print("\n" + "="*60)
+        print("画像中継サーバー 初期化情報")
+        print("="*60)
+        
+        # ソケット設定
+        print(f"【ソケット設定】")
+        print(f"  ホスト: {self.host}")
+        print(f"  ポート: {self.port}")
+        print(f"  バッファサイズ: {self.buffer_size:,} bytes")
+        
+        # REST API設定
+        print(f"\n【REST API設定】")
+        print(f"  API URL: {self.api_url}")
+        print(f"  タイムアウト: {self.api_timeout}秒")
+        print(f"  最大リトライ回数: {self.max_retries}回")
+        print(f"  リトライ遅延: {self.retry_delay}秒")
+        print(f"  チームID: {self.team_id}")
+        
+        # 画像変換設定
+        print(f"\n【画像変換設定】")
+        print(f"  目標サイズ: {self.target_width}x{self.target_height}")
+        print(f"  JPEG品質: {self.jpeg_quality}%")
+        
+        # サーバー設定
+        print(f"\n【サーバー設定】")
+        print(f"  最大ワーカー数: {self.max_workers}")
+        print(f"  キューサイズ: 100件")
+        print(f"  ログレベル: {self.config.get('server', 'log_level', fallback='INFO')}")
+        
+        # 証拠保全設定
+        print(f"\n【証拠保全設定】")
+        print(f"  画像保存: {'有効' if self.save_images else '無効'}")
+        if self.save_images:
+            print(f"  保存ディレクトリ: {self.save_dir}")
+            print(f"  メタデータ保存: {'有効' if self.save_metadata else '無効'}")
+        
+        print("="*60)
+        print("サーバーを開始中...\n")
+    
+    def _check_api_connectivity(self):
+        """REST APIの疎通確認とversion情報取得"""
+        print("【REST API疎通確認】")
+        
+        try:
+            # APIのベースURLを取得（パス部分を除去）
+            from urllib.parse import urlparse
+            parsed_url = urlparse(self.api_url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            # version情報を取得
+            version_url = f"{base_url}/version"
+            
+            print(f"  APIベースURL: {base_url}")
+            print(f"  Version確認URL: {version_url}")
+            
+            response = requests.get(version_url, timeout=10)
+            
+            if response.status_code == 200:
+                try:
+                    version_info = response.json()
+                    print(f"  ✓ API疎通確認成功")
+                    
+                    # compesysバージョン情報を表示
+                    if 'compesys' in version_info:
+                        print(f"  Compesys Version: {version_info['compesys']}")
+                    else:
+                        print(f"  Compesys Version: 不明")
+                    
+                    # レスポンス全体を表示（デバッグ用）
+                    print(f"  レスポンス: {version_info}")
+                        
+                except json.JSONDecodeError:
+                    print(f"  ✓ API疎通確認成功（レスポンス: {response.text[:100]}...）")
+                    
+            else:
+                print(f"  ⚠ API疎通確認警告 - HTTP {response.status_code}")
+                print(f"    レスポンス: {response.text[:100]}...")
+                
+        except requests.exceptions.ConnectionError:
+            print(f"  ✗ API疎通確認失敗 - 接続エラー")
+            print(f"    URL: {version_url}")
+            print(f"    エラー: サーバーに接続できません")
+            
+        except requests.exceptions.Timeout:
+            print(f"  ✗ API疎通確認失敗 - タイムアウト")
+            print(f"    URL: {version_url}")
+            print(f"    エラー: 10秒以内に応答がありませんでした")
+            
+        except Exception as e:
+            print(f"  ✗ API疎通確認失敗 - 予期しないエラー")
+            print(f"    URL: {version_url}")
+            print(f"    エラー: {str(e)}")
+        
+        print()
     
     def setup_logging(self):
         """ログ設定"""
@@ -393,15 +496,15 @@ class ImageRelayServer:
                 # Content-Type: image/jpeg
                 # パラメータ: id (チームID)
                 
-                # チームIDを取得（メタデータから、またはデフォルト値）
-                team_id = header.get('metadata', {}).get('team_id', 1)
+                # チームIDを取得（設定ファイルから、またはメタデータから、またはデフォルト値）
+                team_id = header.get('metadata', {}).get('team_id', self.team_id)
                 
                 # ヘッダーを設定
                 headers = {
                     'Content-Type': 'image/jpeg'
                 }
                 
-                # パラメータを設定
+                # パラメータを設定（id=チームIDの形式）
                 params = {
                     'id': team_id
                 }
@@ -415,13 +518,25 @@ class ImageRelayServer:
                 )
                 
                 if response.status_code == 201:
-                    self.logger.info(f"ワーカー {worker_id}: 画像送信成功 - チーム{team_id}, {client_address}")
+                    try:
+                        response_data = response.json()
+                        self.logger.info(f"ワーカー {worker_id}: 画像送信成功 - チーム{team_id}, レスポンス: {response_data}, {client_address}")
+                    except json.JSONDecodeError:
+                        self.logger.info(f"ワーカー {worker_id}: 画像送信成功 - チーム{team_id}, レスポンス: {response.text}, {client_address}")
                     return
                 elif response.status_code == 429:
-                    self.logger.warning(f"ワーカー {worker_id}: 画像送信制限 - チーム{team_id}は今日の制限に達しました")
+                    try:
+                        response_data = response.json()
+                        self.logger.warning(f"ワーカー {worker_id}: 画像送信制限 - チーム{team_id}, レスポンス: {response_data}")
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"ワーカー {worker_id}: 画像送信制限 - チーム{team_id}, レスポンス: {response.text}")
                     return  # 429エラーは再試行しない
                 else:
-                    self.logger.warning(f"ワーカー {worker_id}: API応答エラー - {response.status_code}")
+                    try:
+                        response_data = response.json()
+                        self.logger.warning(f"ワーカー {worker_id}: API応答エラー - {response.status_code}, レスポンス: {response_data}")
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"ワーカー {worker_id}: API応答エラー - {response.status_code}, レスポンス: {response.text}")
                     
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"ワーカー {worker_id}: API送信エラー (試行 {attempt + 1}/{self.max_retries + 1}): {e}")
