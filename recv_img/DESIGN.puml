@@ -1,0 +1,308 @@
+@startuml 画像中継サーバーシステム設計
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title 画像中継サーバーシステム 設計モデル
+
+' システム構成図
+package "クライアント" {
+    [画像送信クライアント] as Client
+}
+
+package "画像中継サーバー" {
+    [ソケット受信\n(0.0.0.0:8080)] as Socket
+    [画像変換\n(800x600 JPEG)] as Convert
+    [証拠保全\n(画像保存)] as Evidence
+    [REST API送信] as API_Send
+    [キュー管理] as Queue
+    [ワーカースレッド] as Worker
+}
+
+package "APIサーバー" {
+    [画像受信エンドポイント\n(/snap)] as API_Receive
+    [制限チェック\n(1日2回)] as Limit
+    [レスポンス\n(201/429)] as Response
+}
+
+package "証拠保全" {
+    [画像ファイル] as ImageFile
+    [メタデータJSON] as Metadata
+}
+
+Client --> Socket : ソケット接続
+Client --> Socket : ヘッダー送信(JSON)
+Client --> Socket : 画像データ送信
+
+Socket --> Convert : 画像変換
+Convert --> Evidence : 証拠保全保存
+Evidence --> ImageFile : 画像保存
+Evidence --> Metadata : メタデータ保存
+
+Convert --> Queue : キューに追加
+Queue --> Worker : ワーカースレッド処理
+Worker --> API_Send : REST API送信
+
+API_Send --> API_Receive : POST /snap?id=チームID
+API_Receive --> Limit : 制限チェック
+Limit --> Response : レスポンス生成
+Response --> API_Send : HTTP 201/429
+
+@enduml
+
+@startuml クラス設計
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title ImageRelayServer クラス設計
+
+class ImageRelayServer {
+    -- 設定関連 --
+    - host: str
+    - port: int
+    - api_url: str
+    - team_id: int
+    - target_width: int
+    - target_height: int
+    - jpeg_quality: int
+    - save_images: bool
+    - save_dir: str
+    
+    -- サーバー状態 --
+    - running: bool
+    - server_socket: socket
+    - image_queue: Queue
+    - worker_threads: List
+    - received_count: int
+    
+    -- パブリックメソッド --
+    + __init__(config_file: str)
+    + start()
+    + stop()
+    
+    -- プライベートメソッド --
+    - _load_config(config_file: str)
+    - _print_initialization_info()
+    - _check_api_connectivity()
+    - _main_loop()
+    - _handle_client(client_socket, address)
+    - _receive_header(client_socket)
+    - _receive_image(client_socket, header)
+    - convert_image(image_data)
+    - _worker_thread(worker_id)
+    - _send_image_to_api(item, worker_id)
+    - save_evidence_image(image_data, header, client_address, timestamp, is_submission)
+}
+
+class ConfigParser {
+    + read(filename: str)
+    + get(section: str, key: str, fallback: str)
+    + getint(section: str, key: str, fallback: int)
+    + getboolean(section: str, key: str, fallback: bool)
+}
+
+class Queue {
+    + put(item)
+    + get(timeout: float)
+    + task_done()
+    + empty()
+    + full()
+}
+
+ImageRelayServer --> ConfigParser : 使用
+ImageRelayServer --> Queue : 使用
+
+@enduml
+
+@startuml シーケンス図
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title 画像受信・送信シーケンス
+
+actor "クライアント" as Client
+participant "ソケット受信" as Socket
+participant "画像変換" as Convert
+participant "証拠保全" as Evidence
+participant "キュー管理" as Queue
+participant "ワーカースレッド" as Worker
+participant "REST API送信" as API_Send
+participant "APIサーバー" as API_Server
+
+Client -> Socket: ソケット接続
+Client -> Socket: ヘッダー送信(JSON)
+Client -> Socket: 画像データ送信
+
+Socket -> Convert: 画像変換要求
+Convert -> Convert: 800x600 JPEG変換
+Convert -> Evidence: 証拠保全保存
+Evidence -> Evidence: 画像ファイル保存
+Evidence -> Evidence: メタデータ保存
+
+Convert -> Queue: キューに追加
+Queue -> Worker: ワーカースレッド処理開始
+Worker -> API_Send: REST API送信
+API_Send -> API_Server: POST /snap?id=チームID
+
+alt 成功時
+    API_Server -> API_Send: HTTP 201 + {"status": "Created"}
+else 制限エラー時
+    API_Server -> API_Send: HTTP 429 + {"status": "Too Many Requests"}
+else ネットワークエラー時
+    API_Server -> API_Send: 接続エラー
+    API_Send -> API_Send: リトライ実行
+end
+
+API_Send -> Worker: レスポンス処理
+Worker -> Worker: ログ出力
+
+@enduml
+
+@startuml 状態遷移図
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title サーバー状態遷移
+
+[*] --> 初期化
+初期化 --> 設定読み込み : _load_config()
+設定読み込み --> API疎通確認 : _check_api_connectivity()
+API疎通確認 --> サーバー起動 : start()
+サーバー起動 --> 待機中 : _main_loop()
+
+待機中 --> クライアント処理 : クライアント接続
+クライアント処理 --> 画像受信 : _handle_client()
+画像受信 --> 画像変換 : _receive_image()
+画像変換 --> 証拠保全 : convert_image()
+証拠保全 --> キュー追加 : save_evidence_image()
+キュー追加 --> ワーカー処理 : _worker_thread()
+ワーカー処理 --> API送信 : _send_image_to_api()
+
+API送信 --> 成功 : HTTP 201
+API送信 --> 制限エラー : HTTP 429
+API送信 --> ネットワークエラー : 接続失敗
+
+成功 --> 待機中 : 処理完了
+制限エラー --> 待機中 : 処理完了
+ネットワークエラー --> リトライ : リトライ実行
+リトライ --> API送信 : 再送信
+
+待機中 --> 停止中 : stop()
+停止中 --> [*] : 終了
+
+@enduml
+
+@startuml データフロー図
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title データフロー
+
+start
+
+:画像受信開始;
+:ヘッダー受信;
+:画像データ受信;
+
+if (受信成功?) then (yes)
+    :画像変換処理;
+    if (変換成功?) then (yes)
+        :証拠保全保存;
+        :キューに追加;
+        :ワーカースレッド処理;
+        :REST API送信;
+        
+        if (送信成功?) then (yes)
+            :成功ログ出力;
+        elseif (制限エラー?) then (yes)
+            :制限エラーログ出力;
+        else (ネットワークエラー)
+            if (リトライ可能?) then (yes)
+                :リトライ実行;
+                :REST API送信;
+            else (no)
+                :最大リトライ回数到達;
+                :エラーログ出力;
+            endif
+        endif
+    else (no)
+        :変換エラーログ出力;
+    endif
+else (no)
+    :受信エラーログ出力;
+endif
+
+:処理完了;
+
+stop
+
+@enduml
+
+@startuml コンポーネント図
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "MS Gothic"
+skinparam defaultFontSize 10
+
+title システムコンポーネント
+
+package "画像中継サーバー" {
+    [設定管理] as Config
+    [ソケット通信] as Socket
+    [画像処理] as Image
+    [証拠保全] as Evidence
+    [API通信] as API
+    [ログ管理] as Log
+    [キュー管理] as Queue
+    [ワーカー管理] as Worker
+}
+
+package "外部システム" {
+    [クライアント] as Client
+    [APIサーバー] as APIServer
+    [ファイルシステム] as FileSystem
+}
+
+package "設定ファイル" {
+    [config.ini] as ConfigFile
+}
+
+package "ログファイル" {
+    [image_relay_server.log] as LogFile
+}
+
+package "証拠保全" {
+    [evidence_images/] as EvidenceDir
+    [metadata.json] as MetadataFile
+}
+
+Client --> Socket : TCP接続
+Socket --> Image : 画像データ
+Image --> Evidence : 変換済み画像
+Evidence --> FileSystem : ファイル保存
+Evidence --> MetadataFile : メタデータ保存
+
+Config --> ConfigFile : 設定読み込み
+Log --> LogFile : ログ出力
+
+Image --> Queue : キュー追加
+Queue --> Worker : ワーカー処理
+Worker --> API : API送信
+API --> APIServer : HTTP通信
+
+@enduml

@@ -1,22 +1,19 @@
-# 画像中継サーバー用依存関係
+# 画像中継サーバーシステム 依存関係
 
-# HTTP リクエスト用
-requests>=2.25.1
+# 画像処理
+opencv-python>=4.8.0
+numpy>=1.24.0
 
-# Web API サーバー用（テスト用）
-Flask>=2.0.0
-Flask-CORS>=3.0.10
+# HTTP通信
+requests>=2.31.0
 
-# 画像処理用（テスト用）
-Pillow>=8.0.0
+# Webサーバー（スタブサーバー用）
+flask>=2.3.0
 
-# 型ヒント用
-typing-extensions>=3.7.4
+# 設定ファイル
+configparser>=5.3.0
 
-# フォルダ監視用
-watchdog>=2.1.0
-
-# Raspberry Piカメラ用
-picamera>=1.13
+# ログ出力
+colorlog>=6.7.0
 
 

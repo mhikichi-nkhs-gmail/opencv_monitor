@@ -1,60 +1,224 @@
-# 画像中継サーバー
+# 画像中継サーバーシステム
 
-ソケット通信で画像を受信し、REST APIで外部に送信する信頼性の高いPythonサーバーです。
+ET ROBOT CONTEST用の画像中継サーバーシステムです。ソケット通信で画像を受信し、REST APIで外部サーバーに送信する信頼性の高いシステムです。
 
-## 機能
+## 成果物構成
 
-- **ソケット通信**: TCPソケットで画像を受信
-- **REST API送信**: 受信した画像を外部APIに送信
-- **証拠保全**: 受信した画像を自動保存（法的証拠として）
-- **信頼性**: エラー処理とリトライ機能
-- **マルチスレッド**: 複数のワーカースレッドで並行処理
-- **キュー管理**: 画像のバッファリングと優先度管理
-- **ログ機能**: 詳細なログ出力
-- **設定管理**: 設定ファイルによる柔軟な設定
+### 1. 画像中継サーバー (`image_relay_server.py`)
+- ソケット通信で画像を受信
+- 800x600 JPEG形式に変換
+- REST APIで外部サーバーに送信
+- 証拠保全機能（提出画像の保存）
+- エラー時の再送処理
 
-## ファイル構成
+### 2. APIスタブサーバー (`api_stub_server.py`)
+- ET ROBOT CONTEST API仕様に準拠
+- 画像提出エンドポイント `/snap`
+- 1日2回の提出制限機能
+- バージョン情報エンドポイント `/version`
 
-```
-opencv_monitor/recv_img/
-├── image_relay_server.py    # メインサーバー
-├── test_client.py          # テスト用クライアント
-├── test_api_server.py      # テスト用APIサーバー
-├── evidence_manager.py     # 証拠保全管理ツール
-├── folder_monitor_client.py # フォルダ監視クライアント
-├── raspberrypi_camera_client.py # Raspberry Piカメラクライアント
-├── rest_api_stub.py        # REST APIスタブサーバー
-├── test_rest_api_client.py # REST APIテストクライアント
-├── et_robocon_api_stub.py  # ET ROBOT CONTEST APIスタブサーバー
-├── test_et_robocon_client.py # ET ROBOT CONTEST APIテストクライアント
-├── config.ini              # 設定ファイル
-├── requirements.txt        # 依存関係
-└── README.md              # このファイル
-```
+### 3. 起動バッチファイル
+- `start_relay_server.bat` - 画像中継サーバー起動
+- `start_stub_server.bat` - APIスタブサーバー起動
 
-## インストール
+### 4. 設定ファイル (`config.ini`)
+- ソケット設定
+- API設定
+- 画像変換設定
+- 証拠保全設定
 
-1. 依存関係をインストール:
+## セットアップ
+
+### 1. 必要なライブラリのインストール
 ```bash
-pip install -r requirements.txt
+pip install opencv-python numpy requests flask
 ```
+
+### 2. 設定ファイルの確認
+`config.ini`を編集して、チームIDやAPI URLを設定してください。
 
 ## 使用方法
 
-### 1. メインサーバーの起動
+### 1. APIスタブサーバーの起動
+```bash
+start_stub_server.bat
+```
+または
+```bash
+python api_stub_server.py
+```
 
+### 2. 画像中継サーバーの起動
+```bash
+start_relay_server.bat
+```
+または
 ```bash
 python image_relay_server.py
 ```
 
-デフォルト設定:
-- ソケットサーバー: `0.0.0.0:8080`
-- API送信先: `http://localhost:3000/api/images`
+### 3. クライアントからの画像送信
+```python
+import socket
+import json
+import struct
 
-### 2. 設定のカスタマイズ
+# 画像データを準備
+with open('test_image.jpg', 'rb') as f:
+    image_data = f.read()
 
-`config.ini` ファイルを編集して設定を変更できます:
+# ヘッダー情報
+header = {
+    'image_size': len(image_data),
+    'metadata': {
+        'team_id': 1
+    }
+}
 
+# ソケット接続
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(('localhost', 8080))
+
+# ヘッダー送信
+header_bytes = json.dumps(header).encode('utf-8')
+client.send(struct.pack('>I', len(header_bytes)))
+client.send(header_bytes)
+
+# 画像データ送信
+client.send(image_data)
+client.close()
+```
+
+## API仕様
+
+### 画像提出エンドポイント
+```
+POST /snap?id=チームID
+Content-Type: image/jpeg
+```
+
+#### 成功時 (HTTP 201)
+```json
+{
+  "status": "Created"
+}
+```
+
+#### 制限エラー時 (HTTP 429)
+```json
+{
+  "status": "Too Many Requests",
+  "message": "Up to 2 images can be accepted."
+}
+```
+
+### バージョン情報エンドポイント
+```
+GET /version
+```
+
+#### レスポンス
+```json
+{
+  "compesys": "1.0.0"
+}
+```
+
+## 設定項目
+
+### config.ini ファイルの詳細説明
+
+`config.ini`ファイルは画像中継サーバーの動作を制御する設定ファイルです。以下のセクションで構成されています：
+
+#### [socket] セクション - ソケット通信設定
+```ini
+[socket]
+host = 0.0.0.0          # ソケットサーバーのホストアドレス
+port = 8080             # ソケットサーバーのポート番号
+buffer_size = 65536     # 受信バッファサイズ（バイト）
+```
+
+**設定項目の意味：**
+- `host`: サーバーが待ち受けるIPアドレス
+  - `0.0.0.0`: すべてのネットワークインターフェースで待ち受け
+  - `127.0.0.1`: ローカルホストのみで待ち受け
+  - `192.168.1.100`: 特定のIPアドレスで待ち受け
+- `port`: クライアントが接続するポート番号（1024-65535）
+- `buffer_size`: 一度に受信する最大データサイズ
+
+#### [api] セクション - REST API設定
+```ini
+[api]
+url = http://localhost:3000/snap  # APIサーバーのエンドポイントURL
+team_id = 1                       # チームID（画像提出時に使用）
+timeout = 30                      # APIリクエストのタイムアウト時間（秒）
+max_retries = 3                   # 送信失敗時の最大リトライ回数
+retry_delay = 1.0                 # リトライ間隔（秒）
+```
+
+**設定項目の意味：**
+- `url`: 画像を送信するAPIサーバーのURL
+  - 本番環境: `http://192.168.100.1/snap`
+  - テスト環境: `http://localhost:3000/snap`
+- `team_id`: ET ROBOT CONTESTのチームID
+- `timeout`: APIサーバーからの応答を待つ最大時間
+- `max_retries`: ネットワークエラー時の再送回数
+- `retry_delay`: リトライ間隔（指数バックオフで増加）
+
+#### [image] セクション - 画像変換設定
+```ini
+[image]
+target_width = 800                # 変換後の画像幅（ピクセル）
+target_height = 600               # 変換後の画像高さ（ピクセル）
+jpeg_quality = 95                 # JPEG圧縮品質（1-100）
+```
+
+**設定項目の意味：**
+- `target_width`: 提出用画像の幅（ET ROBOT CONTEST仕様）
+- `target_height`: 提出用画像の高さ（ET ROBOT CONTEST仕様）
+- `jpeg_quality`: JPEG圧縮品質
+  - `95`: 高品質（ファイルサイズ大）
+  - `80`: 標準品質
+  - `60`: 低品質（ファイルサイズ小）
+
+#### [server] セクション - サーバー設定
+```ini
+[server]
+max_workers = 3                   # 並行処理するワーカースレッド数
+log_level = INFO                  # ログ出力レベル
+```
+
+**設定項目の意味：**
+- `max_workers`: 同時に処理できる画像数
+  - `1`: シングルスレッド（安定性重視）
+  - `3`: 標準設定（バランス重視）
+  - `5`: 高並行（性能重視）
+- `log_level`: ログの詳細度
+  - `DEBUG`: 詳細なデバッグ情報
+  - `INFO`: 一般的な情報
+  - `WARNING`: 警告のみ
+  - `ERROR`: エラーのみ
+
+#### [evidence] セクション - 証拠保全設定
+```ini
+[evidence]
+save_images = True                # 画像保存の有効/無効
+save_dir = evidence_images        # 保存ディレクトリ名
+save_metadata = True              # メタデータ保存の有効/無効
+```
+
+**設定項目の意味：**
+- `save_images`: 提出画像の保存
+  - `True`: 証拠保全用に画像を保存
+  - `False`: 画像を保存しない（ディスク容量節約）
+- `save_dir`: 画像保存先のディレクトリ名
+- `save_metadata`: 画像の詳細情報保存
+  - `True`: JSONファイルでメタデータも保存
+  - `False`: 画像ファイルのみ保存
+
+### 設定例
+
+#### 本番環境用設定
 ```ini
 [socket]
 host = 0.0.0.0
@@ -62,477 +226,73 @@ port = 8080
 buffer_size = 65536
 
 [api]
-url = http://your-api-server.com/api/images
+url = http://192.168.100.1/snap
+team_id = 5
 timeout = 30
-max_retries = 3
-retry_delay = 1.0
+max_retries = 5
+retry_delay = 2.0
+
+[image]
+target_width = 800
+target_height = 600
+jpeg_quality = 95
 
 [server]
 max_workers = 3
 log_level = INFO
 
 [evidence]
-# 証拠保全設定
 save_images = True
 save_dir = evidence_images
 save_metadata = True
-
-### 3. テスト用APIサーバーの起動
-
-```bash
-python test_api_server.py
 ```
 
-### 4. テストクライアントの実行
-
-```bash
-# デフォルトテスト
-python test_client.py
-
-# 特定の画像を送信
-python test_client.py --image path/to/image.jpg
-
-# ディレクトリ内の画像を連続送信
-python test_client.py --dir path/to/images --count 10 --interval 0.5
-
-### 5. フォルダ監視クライアントの使用
-
-```bash
-# デフォルト設定で監視開始
-python folder_monitor_client.py
-
-# 特定のディレクトリを監視
-python folder_monitor_client.py --dir /path/to/monitor/directory
-
-# サーバー設定を指定
-python folder_monitor_client.py --host 192.168.1.100 --port 8080
-
-# 設定ファイルを指定
-python folder_monitor_client.py --config custom_monitor_config.ini
-```
-
-### 6. 証拠保全管理ツールの使用
-
-```bash
-# 証拠画像一覧を表示
-python evidence_manager.py list
-
-# 証拠画像を検索
-python evidence_manager.py search "192.168.1.100"
-
-# 統計情報を表示
-python evidence_manager.py stats
-
-# 証拠画像をエクスポート
-python evidence_manager.py export backup_dir --start-date 2024-01-01
-
-# 古い証拠画像を削除（ドライラン）
-python evidence_manager.py cleanup 30
-
-# 古い証拠画像を削除（実行）
-python evidence_manager.py cleanup 30 --execute
-```
-
-## Raspberry Pi対応
-
-### 初期セットアップ
-
-```bash
-# 管理者権限でセットアップスクリプトを実行
-sudo chmod +x raspberrypi_setup.sh
-sudo ./raspberrypi_setup.sh
-
-# プロジェクトファイルをコピー
-cp -r * /home/pi/image_relay_client/
-
-# 権限を設定
-sudo chown -R pi:pi /home/pi/image_relay_client
-```
-
-### フォルダ監視クライアント（Raspberry Pi）
-
-```bash
-# 基本的な使用方法
-./start_monitor_raspberrypi.sh
-
-# 設定ファイルを指定
-python3 folder_monitor_client.py --config raspberrypi_config.ini
-
-# 特定のディレクトリを監視
-python3 folder_monitor_client.py --dir /home/pi/monitor_images --host 192.168.1.100
-```
-
-### カメラクライアント（Raspberry Pi）
-
-```bash
-# 単発撮影・送信
-python3 raspberrypi_camera_client.py --single
-
-# 連続撮影（5秒間隔）
-python3 raspberrypi_camera_client.py --continuous --interval 5.0
-
-# 最大100枚撮影
-python3 raspberrypi_camera_client.py --continuous --max-photos 100
-
-# ファイルにも保存
-python3 raspberrypi_camera_client.py --single --save
-```
-
-### systemdサービス設定
-
-```bash
-# サービスを設定
-sudo chmod +x raspberrypi_service.sh
-sudo ./raspberrypi_service.sh
-
-# サービスの管理
-sudo systemctl start image-relay-monitor
-sudo systemctl status image-relay-monitor
-sudo systemctl enable image-relay-monitor
-```
-
-### Raspberry Pi設定ファイル
-
+#### テスト環境用設定
 ```ini
-[server]
-host = 192.168.1.100  # 中継サーバーのIPアドレス
+[socket]
+host = 127.0.0.1
 port = 8080
+buffer_size = 32768
 
-[raspberrypi]
-camera_enabled = true
-camera_resolution = 1920x1080
-camera_framerate = 30
-auto_save = true
-```
-
-## REST APIスタブサーバー
-
-### 概要
-実際の外部システムを模擬するREST APIスタブサーバーです。画像中継サーバーからの画像を受信し、データベースに保存して処理をシミュレートします。
-
-### 機能
-- **画像アップロード**: マルチパートフォームデータで画像を受信
-- **認証システム**: Bearer トークンによる認証
-- **データベース管理**: SQLiteを使用した画像情報の永続化
-- **統計情報**: 期間別の画像統計を提供
-- **画像処理シミュレーション**: 非同期での画像処理を模擬
-- **ヘルスチェック**: サーバー状態の監視
-- **CORS対応**: クロスオリジンリクエストをサポート
-
-### 起動方法
-
-#### Windows
-```bash
-start_rest_api.bat
-```
-
-#### Linux/macOS
-```bash
-chmod +x start_rest_api.sh
-./start_rest_api.sh
-```
-
-#### 手動起動
-```bash
-python rest_api_stub.py --host 0.0.0.0 --port 5000
-```
-
-### API エンドポイント
-
-#### 画像アップロード
-```bash
-POST /api/v1/images
-Content-Type: multipart/form-data
-
-# パラメータ
-- image: 画像ファイル
-- source: 画像ソース（オプション）
-- metadata: JSON形式のメタデータ（オプション）
-```
-
-#### 認証トークン作成
-```bash
-POST /api/v1/auth/token
-Content-Type: application/json
-
-{
-  "description": "API Token",
-  "expires_days": 30
-}
-```
-
-#### 画像一覧取得
-```bash
-GET /api/v1/images?limit=100&offset=0&source=test
-Authorization: Bearer <token>
-```
-
-#### 統計情報取得
-```bash
-GET /api/v1/statistics?days=7
-Authorization: Bearer <token>
-```
-
-#### ヘルスチェック
-```bash
-GET /api/v1/health
-```
-
-#### サーバー状態
-```bash
-GET /api/v1/status
-```
-
-### テストクライアント
-
-```bash
-# ヘルスチェック
-python test_rest_api_client.py --health
-
-# 認証トークン作成
-python test_rest_api_client.py --create-token
-
-# テスト画像作成・アップロード
-python test_rest_api_client.py --create-test-image --upload
-
-# 画像一覧取得
-python test_rest_api_client.py --list
-
-# 統計情報取得
-python test_rest_api_client.py --stats
-```
-
-### 設定ファイル
-
-```ini
-[server]
-host = 0.0.0.0
-port = 5000
-max_file_size = 52428800
-
-[security]
-require_auth = true
-token_expiry_days = 30
-allowed_extensions = .jpg,.jpeg,.png,.bmp,.gif,.tiff
-
-[processing]
-enable_processing = true
-processing_threads = 2
-```
-
-## ET ROBOT CONTEST API対応
-
-### 概要
-ET ROBOT CONTESTの実際のAPI仕様に準拠したスタブサーバーとクライアントです。
-
-### API仕様
-- **エンドポイント**: `POST http://localhost:5000/snap`
-- **Content-Type**: `image/jpeg`
-- **パラメータ**: `id` (チームID: 数値)
-- **制限**: 競技中は1チームあたり最大2枚まで
-- **レスポンス**: 201 Created (成功), 429 Too Many Requests (制限超過)
-
-### 起動方法
-
-#### ET ROBOT CONTEST APIスタブサーバー
-```bash
-# Windows
-start_et_robocon_api.bat
-
-# 手動起動
-python et_robocon_api_stub.py --host localhost --port 5000
-```
-
-#### テストクライアント
-```bash
-# ヘルスチェック
-python test_et_robocon_client.py --health
-
-# 競技シミュレーション
-python test_et_robocon_client.py --simulate --team-id 1
-
-# 個別テスト
-python test_et_robocon_client.py --start-competition
-python test_et_robocon_client.py --upload --image test.jpg --team-id 1
-python test_et_robocon_client.py --end-competition
-```
-
-### 競技管理機能
-
-#### 競技状態管理
-```bash
-# 競技開始
-curl -X POST http://localhost:5000/admin/competition/start
-
-# 競技終了
-curl -X POST http://localhost:5000/admin/competition/end
-
-# 競技リセット
-curl -X POST http://localhost:5000/admin/competition/reset
-```
-
-#### 統計情報
-```bash
-# チーム統計取得
-curl "http://localhost:5000/admin/team/1/statistics?days=7"
-```
-
-### 画像中継サーバーとの連携
-
-画像中継サーバーは自動的にET ROBOT CONTEST API仕様に合わせて画像を送信します：
-
-- チームIDはメタデータから取得（デフォルト: 1）
-- Content-Type: image/jpegで送信
-- 429エラー（制限超過）は適切に処理
-- 証拠保全機能は維持
-
-### 設定例
-
-```ini
 [api]
-# ET ROBOT CONTEST API設定
-url = http://localhost:5000/snap
-timeout = 30
-max_retries = 3
+url = http://localhost:3000/snap
+team_id = 1
+timeout = 10
+max_retries = 2
 retry_delay = 1.0
+
+[image]
+target_width = 800
+target_height = 600
+jpeg_quality = 80
+
+[server]
+max_workers = 1
+log_level = DEBUG
+
+[evidence]
+save_images = False
+save_dir = test_evidence
+save_metadata = False
 ```
-
-## フォルダ監視機能
-
-### 自動監視
-- 指定されたディレクトリをリアルタイムで監視
-- 新しい画像ファイルの追加を自動検知
-- ファイルの書き込み完了を待機してから送信
-- 既存ファイルの処理も可能
-
-### 監視設定
-```ini
-[monitor]
-directory = ./monitor_images          # 監視ディレクトリ
-image_extensions = .jpg,.jpeg,.png,.bmp  # 監視対象拡張子
-delay = 1.0                           # 書き込み完了待機時間
-```
-
-### 対応イベント
-- **ファイル作成**: 新しい画像ファイルの追加
-- **ファイル移動**: 他の場所から移動された画像ファイル
-- **既存ファイル**: 起動時に既存の画像ファイルを処理
-
-### メタデータ
-監視で検出された画像には以下のメタデータが追加されます：
-- ファイルパス
-- 作成時刻・更新時刻
-- 検出時刻
-- ソース情報（folder_monitor）
-
-## プロトコル仕様
-
-### クライアント → サーバー
-
-1. **ヘッダーサイズ送信** (4バイト, big-endian)
-2. **ヘッダーJSON送信** (UTF-8)
-3. **画像データ送信** (バイナリ)
-
-ヘッダーJSON例:
-```json
-{
-    "image_size": 12345,
-    "format": "jpeg",
-    "metadata": {
-        "filename": "test.jpg",
-        "timestamp": 1234567890.123
-    }
-}
-```
-
-### サーバー → API
-
-マルチパートフォームデータで送信:
-- `image`: 画像ファイル
-- `timestamp`: 受信タイムスタンプ
-- `client_address`: クライアントアドレス
-- `image_size`: 画像サイズ
-- `metadata`: メタデータJSON
-
-## 信頼性機能
-
-### エラー処理
-- ソケット接続エラー
-- 画像受信エラー
-- API送信エラー
-- 設定ファイルエラー
-
-### リトライ機能
-- API送信失敗時の自動リトライ
-- 指数バックオフ
-- 最大リトライ回数設定
-
-### キュー管理
-- 画像のバッファリング
-- キュー満杯時の古い画像破棄
-- ワーカースレッドによる並行処理
-
-### ログ機能
-- ファイルとコンソールへのログ出力
-- ログレベル設定
-- 詳細なエラー情報
 
 ## ログファイル
 
-- `image_relay_server.log`: メインサーバーのログ
-- `evidence_images/`: 証拠保全用画像保存ディレクトリ
+- `image_relay_server.log` - 画像中継サーバーのログ
+- 証拠保全画像は `evidence_images/` ディレクトリに保存
 
 ## トラブルシューティング
 
-### よくある問題
+### 1. ポートが使用中
+- 別のポート番号に変更
+- 既存のプロセスを終了
 
-1. **ポートが使用中**
-   - 設定ファイルでポートを変更
-   - 既存プロセスを終了
+### 2. ライブラリが見つからない
+- `pip install` で必要なライブラリをインストール
+- Python環境を確認
 
-2. **API送信エラー**
-   - APIサーバーが起動しているか確認
-   - ネットワーク接続を確認
-   - 設定ファイルのURLを確認
+### 3. APIサーバーに接続できない
+- APIサーバーが起動しているか確認
+- ネットワーク設定を確認
+- ファイアウォール設定を確認
 
-3. **メモリ不足**
-   - バッファサイズを小さくする
-   - ワーカースレッド数を減らす
-
-### デバッグ
-
-ログレベルを `DEBUG` に設定:
-```ini
-[server]
-log_level = DEBUG
-```
-
-## 証拠保全機能
-
-### 自動保存
-- 受信した画像は自動的に `evidence_images/` ディレクトリに保存
-- ファイル名には受信時刻とクライアントアドレスを含む
-- メタデータ（JSON形式）も同時に保存
-
-### ファイル命名規則
-```
-evidence_YYYYMMDD_HHMMSS_microseconds_clientip_port.jpg
-```
-
-### メタデータ内容
-- ファイル情報（サイズ、パス）
-- 受信時刻
-- クライアントアドレス
-- ヘッダー情報
-- 受信順序番号
-
-### 管理機能
-- 画像一覧表示
-- 検索機能（ファイル名、メタデータ）
-- 統計情報表示
-- エクスポート機能
-- 古いファイルの自動削除
-
-## ライセンス
-
-このプロジェクトはMITライセンスの下で公開されています。
