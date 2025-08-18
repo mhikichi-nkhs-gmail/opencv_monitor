@@ -5,14 +5,14 @@ skinparam backgroundColor #FFFFFF
 skinparam defaultFontName "MS Gothic"
 skinparam defaultFontSize 10
 
-title 画像中継サーバーシステム 設計モデル
+title 画像提出サーバーシステム 設計モデル
 
 ' システム構成図
 package "クライアント" {
     [画像送信クライアント] as Client
 }
 
-package "画像中継サーバー" {
+package "画像提出サーバー" {
     [ソケット受信\n(0.0.0.0:8080)] as Socket
     [画像変換\n(800x600 JPEG)] as Convert
     [証拠保全\n(画像保存)] as Evidence
@@ -261,7 +261,7 @@ skinparam defaultFontSize 10
 
 title システムコンポーネント
 
-package "画像中継サーバー" {
+package "画像提出サーバー" {
     [設定管理] as Config
     [ソケット通信] as Socket
     [画像処理] as Image

@@ -1,10 +1,10 @@
-# 画像中継サーバーシステム
+# 画像提出サーバーシステム
 
-ET ROBOT CONTEST用の画像中継サーバーシステムです。ソケット通信で画像を受信し、REST APIで外部サーバーに送信する信頼性の高いシステムです。
+ET ROBOT CONTEST用の画像提出サーバーシステムです。ソケット通信で画像を受信し、REST APIで外部サーバーに送信する信頼性の高いシステムです。
 
 ## 成果物構成
 
-### 1. 画像中継サーバー (`image_relay_server.py`)
+### 1. 画像提出サーバー (`image_relay_server.py`)
 - ソケット通信で画像を受信
 - 800x600 JPEG形式に変換
 - REST APIで外部サーバーに送信
@@ -18,7 +18,7 @@ ET ROBOT CONTEST用の画像中継サーバーシステムです。ソケット�
 - バージョン情報エンドポイント `/version`
 
 ### 3. 起動バッチファイル
-- `start_relay_server.bat` - 画像中継サーバー起動
+- `start_relay_server.bat` - 画像提出サーバー起動
 - `start_stub_server.bat` - APIスタブサーバー起動
 
 ### 4. 設定ファイル (`config.ini`)
@@ -48,7 +48,7 @@ start_stub_server.bat
 python api_stub_server.py
 ```
 
-### 2. 画像中継サーバーの起動
+### 2. 画像提出サーバーの起動
 ```bash
 start_relay_server.bat
 ```
@@ -278,7 +278,7 @@ save_metadata = False
 
 ## ログファイル
 
-- `image_relay_server.log` - 画像中継サーバーのログ
+- `image_relay_server.log` - 画像提出サーバーのログ
 - 証拠保全画像は `evidence_images/` ディレクトリに保存
 
 ## トラブルシューティング
