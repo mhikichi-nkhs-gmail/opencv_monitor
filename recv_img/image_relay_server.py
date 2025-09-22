@@ -59,9 +59,9 @@ class ImageRelayServer:
         # サーバー状態
         self.running = False
         self.server_socket = None
-        self.image_queue = queue.Queue(maxsize=100)
+        self.image_queue = queue.Queue(maxsize=200)
         self.worker_threads = []
-        self.max_workers = self.config.getint('server', 'max_workers', fallback=3)
+        self.max_workers = self.config.getint('server', 'max_workers', fallback=5)
         self.received_count = 0
         
         self.logger.info("画像中継サーバーを初期化しました")
@@ -88,7 +88,7 @@ class ImageRelayServer:
             'team_id': '1'
         }
         config['server'] = {
-            'max_workers': '3',
+            'max_workers': '5',
             'log_level': 'INFO'
         }
         config['evidence'] = {
@@ -142,7 +142,7 @@ class ImageRelayServer:
         # サーバー設定
         print(f"\n【サーバー設定】")
         print(f"  最大ワーカー数: {self.max_workers}")
-        print(f"  キューサイズ: 100件")
+        print(f"  キューサイズ: 200件")
         print(f"  ログレベル: {self.config.get('server', 'log_level', fallback='INFO')}")
         
         # 証拠保全設定
@@ -238,11 +238,21 @@ class ImageRelayServer:
             return None
         
         try:
-            # ファイル名を生成（タイムスタンプ + クライアントアドレス + 提出フラグ）
+            # ファイル名を生成（タイムスタンプ + クライアントアドレス + 提出フラグ + 連番）
             timestamp_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             prefix = "submission" if is_submission else "evidence"
-            filename = f"{prefix}_{timestamp_obj.strftime('%Y%m%d_%H%M%S_%f')}_{client_address[0]}_{client_address[1]}.jpg"
+            base_filename = f"{prefix}_{timestamp_obj.strftime('%Y%m%d_%H%M%S_%f')}_{client_address[0]}_{client_address[1]}"
+            
+            # ファイル名の重複を防ぐため連番を追加
+            counter = 1
+            filename = f"{base_filename}_{counter:03d}.jpg"
             filepath = os.path.join(self.save_dir, filename)
+            
+            # ファイルが既に存在する場合は連番を増やして重複を回避
+            while os.path.exists(filepath):
+                counter += 1
+                filename = f"{base_filename}_{counter:03d}.jpg"
+                filepath = os.path.join(self.save_dir, filename)
             
             # 画像を保存
             with open(filepath, 'wb') as f:
@@ -268,7 +278,7 @@ class ImageRelayServer:
             
             self.received_count += 1
             image_type = "提出画像" if is_submission else "元画像"
-            self.logger.info(f"証拠保全: {image_type}を保存しました - {filename} ({len(image_data)} bytes)")
+            self.logger.info(f"証拠保全: {image_type}を保存しました - {filename} ({len(image_data)} bytes) [連番: {counter:03d}]")
             return filepath
             
         except Exception as e:
@@ -306,39 +316,54 @@ class ImageRelayServer:
     
     def _main_loop(self):
         """メインループ - クライアント接続を待機"""
+        connection_count = 0
         while self.running:
             try:
+                self.logger.info("クライアント接続を待機中...")
                 client_socket, address = self.server_socket.accept()
-                self.logger.info(f"クライアント接続: {address}")
+                connection_count += 1
+                self.logger.info(f"クライアント接続 #{connection_count}: {address}")
                 
                 # クライアント処理スレッドを開始
                 client_thread = threading.Thread(
                     target=self._handle_client,
-                    args=(client_socket, address)
+                    args=(client_socket, address, connection_count)
                 )
                 client_thread.daemon = True
                 client_thread.start()
+                self.logger.info(f"クライアント処理スレッド開始: {address} (接続#{connection_count})")
                 
             except socket.timeout:
                 continue
             except Exception as e:
                 if self.running:
                     self.logger.error(f"メインループエラー: {e}")
+                    import traceback
+                    self.logger.error(f"メインループエラー詳細: {traceback.format_exc()}")
     
-    def _handle_client(self, client_socket: socket.socket, address: tuple):
+    def _handle_client(self, client_socket: socket.socket, address: tuple, connection_id: int = 0):
         """クライアント接続を処理"""
         try:
+            self.logger.info(f"クライアント処理開始: {address} (接続#{connection_id})")
             client_socket.settimeout(30.0)  # 30秒タイムアウト
             
             # ヘッダー情報を受信
+            self.logger.info(f"ヘッダー受信開始: {address} (接続#{connection_id})")
             header_data = self._receive_header(client_socket)
             if not header_data:
+                self.logger.warning(f"ヘッダー受信失敗: {address} (接続#{connection_id})")
                 return
             
+            self.logger.info(f"ヘッダー受信完了: {address} (接続#{connection_id}) - 画像サイズ: {header_data.get('image_size', 0)} bytes")
+            
             # 画像データを受信
+            self.logger.info(f"画像データ受信開始: {address} (接続#{connection_id}) - サイズ: {header_data.get('image_size', 0)} bytes")
             image_data = self._receive_image(client_socket, header_data)
             if not image_data:
+                self.logger.warning(f"画像データ受信失敗: {address} (接続#{connection_id})")
                 return
+            
+            self.logger.info(f"画像データ受信完了: {address} (接続#{connection_id}) - 受信サイズ: {len(image_data)} bytes")
             
             # 画像変換処理
             converted_image_data = self.convert_image(image_data)
@@ -350,83 +375,133 @@ class ImageRelayServer:
             timestamp = datetime.now().isoformat()
             saved_path = self.save_evidence_image(converted_image_data, header_data, address, timestamp, is_submission=True)
             
-            # キューに追加
+            # キューに追加（ブロッキング方式で確実に追加）
             try:
-                self.image_queue.put_nowait({
+                queue_item = {
                     'image_data': converted_image_data,
                     'header': header_data,
                     'timestamp': timestamp,
                     'client_address': address,
                     'saved_path': saved_path
-                })
-                self.logger.info(f"画像をキューに追加: {address} - サイズ: {len(converted_image_data)} bytes")
+                }
+                
+                # ブロッキング方式でキューに追加（最大5秒待機）
+                self.image_queue.put(queue_item, timeout=5.0)
+                self.logger.info(f"画像をキューに追加: {address} - サイズ: {len(converted_image_data)} bytes (キューサイズ: {self.image_queue.qsize()})")
+                
             except queue.Full:
-                self.logger.warning("キューが満杯です。古い画像を破棄します")
-                # 古い画像を削除して新しい画像を追加
+                self.logger.error(f"キューが満杯で画像を追加できませんでした: {address} - キューサイズ: {self.image_queue.qsize()}")
+                # キューが満杯の場合は、古い画像を1つ削除して新しい画像を追加
                 try:
-                    self.image_queue.get_nowait()
-                    self.image_queue.put_nowait({
-                        'image_data': converted_image_data,
-                        'header': header_data,
-                        'timestamp': timestamp,
-                        'client_address': address,
-                        'saved_path': saved_path
-                    })
+                    old_item = self.image_queue.get_nowait()
+                    self.logger.warning(f"古い画像を破棄して新しい画像を追加: {old_item.get('client_address', 'unknown')}")
+                    self.image_queue.put_nowait(queue_item)
+                    self.logger.info(f"画像をキューに追加（古い画像を破棄後）: {address} - サイズ: {len(converted_image_data)} bytes")
                 except queue.Empty:
-                    pass
+                    self.logger.error(f"キューが空で古い画像を削除できませんでした: {address}")
+            except Exception as e:
+                self.logger.error(f"キュー追加エラー: {address} - {e}")
             
         except Exception as e:
             self.logger.error(f"クライアント処理エラー {address}: {e}")
+            import traceback
+            self.logger.error(f"詳細エラー情報 {address}: {traceback.format_exc()}")
         finally:
             try:
                 client_socket.close()
-            except:
-                pass
+                self.logger.info(f"クライアント接続を閉じました: {address}")
+            except Exception as e:
+                self.logger.error(f"クライアント接続クローズエラー {address}: {e}")
     
     def _receive_header(self, client_socket: socket.socket) -> Optional[Dict[str, Any]]:
         """ヘッダー情報を受信"""
         try:
+            self.logger.info("ヘッダーサイズ受信開始 (4バイト)")
             # ヘッダーサイズを受信 (4バイト)
             header_size_data = client_socket.recv(4)
+            self.logger.info(f"ヘッダーサイズ受信完了: {len(header_size_data)} bytes")
             if len(header_size_data) != 4:
+                self.logger.error(f"ヘッダーサイズ受信失敗: 期待値4バイト, 実際{len(header_size_data)}バイト")
                 return None
             
             header_size = int.from_bytes(header_size_data, byteorder='big')
+            self.logger.info(f"ヘッダーサイズ: {header_size} bytes")
             
             # ヘッダーデータを受信
             header_data = b''
+            received_bytes = 0
             while len(header_data) < header_size:
-                chunk = client_socket.recv(min(1024, header_size - len(header_data)))
+                chunk_size = min(1024, header_size - len(header_data))
+                self.logger.info(f"ヘッダーデータ受信中: {received_bytes}/{header_size} bytes")
+                chunk = client_socket.recv(chunk_size)
                 if not chunk:
+                    self.logger.error(f"ヘッダーデータ受信中断: {received_bytes}/{header_size} bytes")
                     return None
                 header_data += chunk
+                received_bytes += len(chunk)
             
+            self.logger.info(f"ヘッダーデータ受信完了: {len(header_data)} bytes")
             header = json.loads(header_data.decode('utf-8'))
+            self.logger.info(f"ヘッダー解析完了: {header}")
             return header
             
         except Exception as e:
             self.logger.error(f"ヘッダー受信エラー: {e}")
+            import traceback
+            self.logger.error(f"ヘッダー受信エラー詳細: {traceback.format_exc()}")
             return None
     
     def _receive_image(self, client_socket: socket.socket, header: Dict[str, Any]) -> Optional[bytes]:
         """画像データを受信"""
         try:
             image_size = header.get('image_size', 0)
+            self.logger.info(f"画像データ受信開始: 期待サイズ {image_size} bytes")
             if image_size <= 0:
+                self.logger.error(f"無効な画像サイズ: {image_size}")
                 return None
             
             image_data = b''
+            received_bytes = 0
+            chunk_count = 0
+            consecutive_empty_chunks = 0
+            max_empty_chunks = 10  # 連続で空のチャンクが来る最大回数
+            
             while len(image_data) < image_size:
                 chunk_size = min(self.buffer_size, image_size - len(image_data))
-                chunk = client_socket.recv(chunk_size)
-                if not chunk:
+                chunk_count += 1
+                if chunk_count % 50 == 0:  # 50チャンクごとにログ出力
+                    self.logger.info(f"画像データ受信中: {received_bytes}/{image_size} bytes (チャンク#{chunk_count})")
+                
+                try:
+                    chunk = client_socket.recv(chunk_size)
+                    if not chunk:
+                        consecutive_empty_chunks += 1
+                        self.logger.warning(f"空のチャンク受信: {consecutive_empty_chunks}/{max_empty_chunks} (チャンク#{chunk_count})")
+                        if consecutive_empty_chunks >= max_empty_chunks:
+                            self.logger.error(f"画像データ受信中断: {received_bytes}/{image_size} bytes (連続空チャンク上限)")
+                            return None
+                        time.sleep(0.1)  # 少し待機してから再試行
+                        continue
+                    else:
+                        consecutive_empty_chunks = 0  # 正常なチャンクを受信したらリセット
+                    
+                    image_data += chunk
+                    received_bytes += len(chunk)
+                    
+                except socket.timeout:
+                    self.logger.warning(f"ソケットタイムアウト: チャンク#{chunk_count}")
+                    continue
+                except Exception as e:
+                    self.logger.error(f"チャンク受信エラー: {e}")
                     return None
-                image_data += chunk
             
+            self.logger.info(f"画像データ受信完了: {len(image_data)} bytes (チャンク#{chunk_count})")
             return image_data
             
         except Exception as e:
             self.logger.error(f"画像受信エラー: {e}")
+            import traceback
+            self.logger.error(f"画像受信エラー詳細: {traceback.format_exc()}")
             return None
     
     def convert_image(self, image_data: bytes) -> Optional[bytes]:
@@ -469,18 +544,26 @@ class ImageRelayServer:
     def _worker_thread(self, worker_id: int):
         """ワーカースレッド - キューから画像を取得してAPIに送信"""
         self.logger.info(f"ワーカースレッド {worker_id} が開始されました")
+        processed_count = 0
         
         while self.running:
             try:
                 # キューから画像を取得
                 item = self.image_queue.get(timeout=1.0)
+                processed_count += 1
+                self.logger.info(f"ワーカー {worker_id}: 画像処理開始 ({processed_count}件目) - {item['client_address']} (キューサイズ: {self.image_queue.qsize()})")
+                
                 self._send_image_to_api(item, worker_id)
                 self.image_queue.task_done()
+                
+                self.logger.info(f"ワーカー {worker_id}: 画像処理完了 ({processed_count}件目) - {item['client_address']}")
                 
             except queue.Empty:
                 continue
             except Exception as e:
                 self.logger.error(f"ワーカースレッド {worker_id} エラー: {e}")
+                if 'item' in locals():
+                    self.image_queue.task_done()
     
     def _send_image_to_api(self, item: Dict[str, Any], worker_id: int):
         """画像をAPIに送信（ET ROBOT CONTEST API仕様）"""

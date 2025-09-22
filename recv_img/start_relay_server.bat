@@ -1,29 +1,29 @@
 @echo off
 echo ========================================
-echo ‰æ‘œ’ñoƒT[ƒo[‹N“®
+echo ï¿½æ‘œï¿½ï¿½oï¿½Tï¿½[ï¿½oï¿½[ï¿½Nï¿½ï¿½
 echo ========================================
 echo.
 
-REM PythonŠÂ‹«‚ÌŠm”F
+REM Pythonï¿½Â‹ï¿½ï¿½ÌŠmï¿½F
 python --version
 if errorlevel 1 (
-    echo ƒGƒ‰[: Python‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ
+    echo ï¿½Gï¿½ï¿½ï¿½[: Pythonï¿½ï¿½ï¿½ï¿½ï¿½Â‚ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½
     pause
     exit /b 1
 )
 
-REM •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ÌŠm”F
-echo •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ðŠm”F’†...
+REM ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ÌŠmï¿½F
+echo ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½mï¿½Fï¿½ï¿½...
 python -c "import cv2, numpy, requests" 2>nul
 if errorlevel 1 (
-    echo •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ðƒCƒ“ƒXƒg[ƒ‹’†...
+    echo ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½ï¿½ï¿½...
     pip install opencv-python numpy requests
 )
 
 echo.
-echo ‰æ‘œ’ñoƒT[ƒo[‚ð‹N“®‚µ‚Ü‚·...
-echo ƒ\ƒPƒbƒgƒT[ƒo[: 0.0.0.0:8080
-echo ’âŽ~‚·‚é‚É‚Í Ctrl+C ‚ð‰Ÿ‚µ‚Ä‚­‚¾‚³‚¢
+echo ï¿½æ‘œï¿½ï¿½oï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½...
+echo ï¿½\ï¿½Pï¿½bï¿½gï¿½Tï¿½[ï¿½oï¿½[: 0.0.0.0:8080
+echo ï¿½ï¿½~ï¿½ï¿½ï¿½ï¿½É‚ï¿½ Ctrl+C ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 echo.
 
 python image_relay_server.py

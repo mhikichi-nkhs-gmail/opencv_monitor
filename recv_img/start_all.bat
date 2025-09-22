@@ -1,42 +1,42 @@
 @echo off
 chcp 932 >nul
 echo ========================================
-echo ‰æ‘œ’ñoƒT[ƒo[ƒVƒXƒeƒ€ ‹N“®
+echo ï¿½æ‘œï¿½ï¿½oï¿½Tï¿½[ï¿½oï¿½[ï¿½Vï¿½Xï¿½eï¿½ï¿½ ï¿½Nï¿½ï¿½
 echo ========================================
 echo.
 
-REM PythonŠÂ‹«‚ÌŠm”F
+REM Pythonï¿½Â‹ï¿½ï¿½ÌŠmï¿½F
 python --version
 if errorlevel 1 (
-    echo ƒGƒ‰[: Python‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ
+    echo ï¿½Gï¿½ï¿½ï¿½[: Pythonï¿½ï¿½ï¿½ï¿½ï¿½Â‚ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½
     pause
     exit /b 1
 )
 
-REM •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ÌŠm”FEƒCƒ“ƒXƒg[ƒ‹
-echo •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ğŠm”F’†...
+REM ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ÌŠmï¿½Fï¿½Eï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½
+echo ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½mï¿½Fï¿½ï¿½...
 python -c "import cv2, numpy, requests, flask" 2>nul
 if errorlevel 1 (
-    echo •K—v‚Èƒ‰ƒCƒuƒ‰ƒŠ‚ğƒCƒ“ƒXƒg[ƒ‹’†...
+    echo ï¿½Kï¿½vï¿½Èƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½ï¿½ï¿½...
     pip install -r requirements.txt
 )
 
 echo.
-echo ƒVƒXƒeƒ€‚ğ‹N“®‚µ‚Ü‚·...
+echo ï¿½Vï¿½Xï¿½eï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½...
 echo.
-echo 1. APIƒXƒ^ƒuƒT[ƒo[: http://localhost:3000
-echo 2. ‰æ‘œ’ñoƒT[ƒo[: 0.0.0.0:8080
+echo 1. APIï¿½Xï¿½^ï¿½uï¿½Tï¿½[ï¿½oï¿½[: http://localhost:3000
+echo 2. ï¿½æ‘œï¿½ï¿½oï¿½Tï¿½[ï¿½oï¿½[: 0.0.0.0:8080
 echo.
-echo ’â~‚·‚é‚É‚Í Ctrl+C ‚ğ‰Ÿ‚µ‚Ä‚­‚¾‚³‚¢
+echo ï¿½ï¿½~ï¿½ï¿½ï¿½ï¿½É‚ï¿½ Ctrl+C ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 echo.
 
-REM V‚µ‚¢ƒEƒBƒ“ƒhƒE‚ÅAPIƒXƒ^ƒuƒT[ƒo[‚ğ‹N“®
-start "APIƒXƒ^ƒuƒT[ƒo[" cmd /k "python api_stub_server.py"
+REM ï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½Eï¿½Bï¿½ï¿½ï¿½hï¿½Eï¿½ï¿½APIï¿½Xï¿½^ï¿½uï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½
+start "APIï¿½Xï¿½^ï¿½uï¿½Tï¿½[ï¿½oï¿½[" cmd /k "python api_stub_server.py"
 
-REM ­‚µ‘Ò‹@
+REM ï¿½ï¿½ï¿½ï¿½ï¿½Ò‹@
 timeout /t 3 /nobreak >nul
 
-REM ‰æ‘œ’†ŒpƒT[ƒo[‚ğ‹N“®
+REM ï¿½æ‘œï¿½ï¿½ï¿½pï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½
 python image_relay_server.py
 
 pause
